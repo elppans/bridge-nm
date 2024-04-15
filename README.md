@@ -16,16 +16,23 @@ git clone https://github.com/elppans/bridge_nmcli.git
 ```
 cd bridge_nmcli
 ```
-3) Execute o script para configurar a rede bridge:
+
+3) Configure o script para execução:
+
+```
+chmod +x bridge_nmcli.sh
+```
+
+4) Execute o script para configurar a rede bridge:
 
 ```
 ./bridge_nmcli.sh auto
 ```
 
 - A opção `auto` atribui o mesmo IP da interface de rede principal à ponte.
+- Execute o script sem opções para ver o help.  
 
-
-4) Verifique a conectividade e ajuste outras configurações conforme necessário.  
+5) Verifique a conectividade e ajuste outras configurações conforme necessário.  
 
 ## Dependências  
 
