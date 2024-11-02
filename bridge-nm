@@ -38,6 +38,7 @@ show_help() {
     echo "  -r <nome>                Remover a conexão especificada"
     echo "  -a                       Remover todas as conexões"
     echo "  -l                       Listar todas as conexões"
+    echo "  -p                       Listar todas as pontes"
     echo "  -w <ssid>                Criar conexão Wi-Fi com o SSID especificado e senha interativa"
     echo "  -h                       Exibir esta ajuda"
     echo
@@ -252,9 +253,6 @@ check_dependencies() {
     done
 }
 
-# Limpar terminal
-clear
-
 # Verificação de dependências
 check_dependencies
 
@@ -267,7 +265,7 @@ if [[ "$#" -gt 0 ]]; then
             exit 1
         fi
     done
-    while getopts "c:b:i:g:r:alhw:" opt; do
+    while getopts "c:b:i:g:r:alphw:" opt; do
         case $opt in
             c)
                 create_cabeada "$OPTARG"
@@ -294,6 +292,10 @@ if [[ "$#" -gt 0 ]]; then
                 list_connections
                 exit 0
                 ;;
+			p)
+                list_bridges
+                exit 0
+                ;;
             w)
                 create_wifi "$OPTARG"
                 exit 0
@@ -318,6 +320,8 @@ if [[ "$#" -gt 0 ]]; then
         create_bridge "$bridge_name" "$ipv4_address" "$ipv4_gateway"
     fi
 else
+	# Limpar terminal
+	clear
     while true; do
 		show_menu
 		read -p "Opção: " option
