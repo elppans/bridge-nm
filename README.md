@@ -1,6 +1,8 @@
-# Script de Gerenciamento de Conexões de Rede
+# bridge-nm
 
-Este script em Bash facilita a criação, remoção e listagem de conexões de rede no Linux usando o `NetworkManager`. Ele suporta conexões Ethernet e Bridges, além de permitir a configuração de IPs e gateways.
+## Script `simples` de Gerenciamento de Conexões de Rede em Bridge
+
+Este é um script `simples` em Bash que facilita a criação, remoção e listagem de conexões de rede no Linux usando o `NetworkManager`. Ele suporta conexões Ethernet, Wi-Fi e Bridges, além de permitir a configuração de IPs e gateways.
 
 ## Pré-requisitos
 
@@ -69,7 +71,7 @@ As opções disponíveis são:
 - `-r <nome>`: Remove a conexão especificada.
 - `-a`: Remove todas as conexões.
 - `-l`: Lista todas as conexões atuais do NetworkManager.
-- `-p`: Lista todas as pontes atuais usando `brctl`.
+- `-w <ssid>`: Cria uma conexão Wi-Fi com o SSID especificado e solicita uma senha interativa.
 - `-h`: Exibe a ajuda.
 
 ### Exemplos
@@ -84,6 +86,12 @@ bridge-nm -c NomeDaConexao
 
 ```bash
 bridge-nm -b br0 -i 192.168.1.10/24 -g 192.168.1.1
+```
+
+- Criar uma conexão Wi-Fi:
+
+```bash
+bridge-nm -w NomeDoSSID
 ```
 
 - Remover uma conexão específica:
@@ -112,7 +120,7 @@ bridge-nm -p
 
 ### Modo Interativo
 
-Se você não fornecer nenhuma opção ao executar o script, ele abrirá um menu interativo onde você pode escolher as operações a serem realizadas. 
+Se você não fornecer nenhuma opção ao executar o script, ele abrirá um menu interativo onde você pode escolher as operações a serem realizadas.
 
 ```bash
 bridge-nm
@@ -125,3 +133,6 @@ Sinta-se à vontade para fazer contribuições ou sugestões. Para relatar probl
 ## Licença
 
 Este projeto está sob a licença MIT. Consulte o arquivo [LICENSE](LICENSE) para mais detalhes.
+
+---
+
