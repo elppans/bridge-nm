@@ -1,4 +1,30 @@
 #!/bin/bash
+set -e  # Faz o script sair imediatamente se um comando falhar
+
+# Nome do script
+SCRIPT_NAME="Gerenciador de Conexões de Rede"
+
+# Descrição do script
+DESCRIPTION="Este menu permite gerenciar conexões de rede no Linux, incluindo a criação, remoção e listagem de conexões 'Cabeadas', Wi-Fi e 'Bridges'."
+
+# Função para exibir menu
+show_menu() {
+    # clear
+    echo -ne "\033]0;$SCRIPT_NAME\007"  # Altera o título do terminal
+    echo "==============================="
+    echo "$SCRIPT_NAME"
+    echo "$DESCRIPTION"
+    echo "==============================="
+    echo "Escolha uma opção:"
+    echo "1) Criar conexão 'Cabeada' (Ethernet)"
+    echo "2) Criar conexão Wi-Fi"
+    echo "3) Criar conexão 'Bridge' com nome e IP personalizados"
+    echo "4) Remover uma conexão específica"
+    echo "5) Remover todas as conexões"
+    echo "6) Listar todas as conexões"
+    echo "7) Listar bridges"
+    echo "0) Sair"
+}
 
 # Função para exibir ajuda
 show_help() {
@@ -12,13 +38,24 @@ show_help() {
     echo "  -r <nome>                Remover a conexão especificada"
     echo "  -a                       Remover todas as conexões"
     echo "  -l                       Listar todas as conexões"
-    echo "  -p                       Listar todas as pontes"
+    echo "  -w <ssid>                Criar conexão Wi-Fi com o SSID especificado e senha interativa"
     echo "  -h                       Exibir esta ajuda"
     echo
     echo "Exemplos:"
     echo "  $0 -c Cabeada             Cria uma conexão Ethernet 'Cabeada'"
     echo "  $0 -b br0 -i 192.168.15.222/24 -g 192.168.15.1"
     echo "                            Cria uma conexão Bridge 'br0' com IP e Gateway especificados"
+    echo "  $0 -w MyWiFi              Cria uma conexão Wi-Fi com o SSID 'MyWiFi' e senha fornecida"
+}
+
+# Função para exibir mensagens de erro
+error_msg() {
+    echo -e "\e[31mErro:\e[0m $1"
+}
+
+# Função para exibir mensagens de sucesso
+success_msg() {
+    echo -e "\e[32mSucesso:\e[0m $1"
 }
 
 # Função para verificar se uma conexão existe
@@ -27,28 +64,40 @@ check_connection_exists() {
     nmcli connection show | grep -q "^$name "
 }
 
-# Função para validar o formato de um endereço IP
-is_valid_ip() {
+# Função para validar endereço IP
+validate_ip() {
     local ip="$1"
-    local valid_ip_regex="^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$"
-    if [[ "$ip" =~ $valid_ip_regex ]]; then
-        return 0  # Verdadeiro
+    if [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/([0-9]|[1-2][0-9]|3[0-2]))?$ ]]; then
+        return 0
     else
-        return 1  # Falso
+        error_msg "Endereço IP '$ip' inválido."
+        return 1
     fi
 }
 
-# Função para gerar um nome automático para a bridge
-generate_bridge_name() {
-    local base="br"
-    local num=0
-    while check_connection_exists "${base}${num}"; do
-        ((num++))
-    done
-    echo "${base}${num}"
+# Função para verificar e listar bridges existentes
+get_bridge_controller() {
+    local bridges=($(nmcli -t -f NAME,TYPE connection show | grep ":bridge$" | cut -d: -f1))
+
+    if [[ ${#bridges[@]} -eq 0 ]]; then
+        error_msg "Nenhuma bridge encontrada. Crie uma bridge antes de prosseguir."
+        return 1
+    elif [[ ${#bridges[@]} -eq 1 ]]; then
+        echo "${bridges[0]}"
+    else
+        echo "Múltiplas bridges encontradas:"
+        select bridge in "${bridges[@]}"; do
+            if [[ -n "$bridge" ]]; then
+                echo "$bridge"
+                break
+            else
+                error_msg "Opção inválida. Tente novamente."
+            fi
+        done
+    fi
 }
 
-# Função para criar a conexão Bridge com configurações especificadas
+# Função para criar a conexão Bridge
 create_bridge() {
     local bridge_name="$1"
     local ipv4_address="$2"
@@ -56,28 +105,23 @@ create_bridge() {
     local bridge_ageing_time=299
     local ipv4_method
 
-    # Define o método IPv4 conforme as variáveis de IP e gateway
     if [[ -z "$ipv4_address" || -z "$ipv4_gateway" ]]; then
         ipv4_method="auto"
         echo "Nenhum endereço IP ou gateway especificado. Usando o método IPv4 'auto'."
     else
         ipv4_method="manual"
+        if ! validate_ip "$ipv4_address" || ! validate_ip "$ipv4_gateway"; then
+            exit 1
+        fi
     fi
 
     echo "Criando conexão '$bridge_name' para Bridge..."
 
-    # Cria a conexão do tipo bridge com configurações especificadas
     nmcli connection add type bridge ifname "$bridge_name" con-name "$bridge_name"
-    if [[ $? -ne 0 ]]; then
-        echo "Erro ao criar a conexão '$bridge_name'."
-        exit 1
-    fi
-
     nmcli connection modify "$bridge_name" connection.autoconnect no
     nmcli connection modify "$bridge_name" connection.interface-name "$bridge_name"
     nmcli connection modify "$bridge_name" bridge.ageing-time "$bridge_ageing_time"
 
-    # Configura IPv4 conforme o método escolhido
     if [[ "$ipv4_method" == "manual" ]]; then
         nmcli connection modify "$bridge_name" ipv4.addresses "$ipv4_address"
         nmcli connection modify "$bridge_name" ipv4.gateway "$ipv4_gateway"
@@ -89,29 +133,80 @@ create_bridge() {
     nmcli connection modify "$bridge_name" ipv6.addr-gen-mode stable-privacy
     nmcli connection modify "$bridge_name" ipv6.method auto
 
-    echo "Conexão '$bridge_name' configurada com sucesso!"
+    success_msg "Conexão '$bridge_name' configurada com sucesso!"
 }
 
-# Função para criar a conexão Ethernet 'Cabeada' com configurações especificadas
+# Função para criar a conexão Ethernet 'Cabeada'
 create_cabeada() {
     local name="$1"
-    local controller="br0"
-    local timestamp=$(date +%s)  # Gera o timestamp atual automaticamente
+    local controller
+    controller=$(get_bridge_controller) || exit 1
 
-    echo "Criando conexão '$name' para Ethernet..."
+    echo "Criando conexão '$name' para Ethernet usando a bridge '$controller'..."
 
-    # Cria a conexão Ethernet e configura o controlador e o timestamp
     nmcli connection add type ethernet ifname "$controller" con-name "$name"
-    if [[ $? -ne 0 ]]; then
-        echo "Erro ao criar a conexão '$name'."
+
+    if ! nmcli connection add type ethernet ifname "$controller" con-name "$name"; then
+        error_msg "Falha ao criar a conexão '$name'."
         exit 1
     fi
 
-    nmcli connection modify "$name" connection.controller "$controller"
+    nmcli connection modify "$name" connection.master "$controller"
     nmcli connection modify "$name" connection.port-type bridge
-    nmcli connection modify "$name" connection.timestamp "$timestamp"
 
-    echo "Conexão '$name' criada com sucesso!"
+    success_msg "Conexão '$name' criada com sucesso!"
+}
+
+# Função para leitura segura de senha
+read_password() {
+    # local password=""
+    while true; do
+        IFS= read -r -s -n 1 char
+        if [[ $char == $'\0' ]]; then
+            break
+        fi
+        if [[ $char == $'\177' ]]; then  # Backspace
+            if [[ -n $password ]]; then
+                password=${password%?}
+                printf "\b \b"  # Move o cursor para trás e apaga o asterisco
+                printf ' '      # Apaga o último asterisco
+                printf "\b"     # Move o cursor para trás novamente
+            fi
+        else
+            password+="$char"
+            printf '*'  # Mostra um asterisco na tela
+        fi
+    done
+    echo
+    # echo "$password"  # Retorna a senha lida
+}
+
+# Função para criar a conexão Wi-Fi
+create_wifi() {
+    local ssid="$1"
+    local controller
+    controller=$(get_bridge_controller) || exit 1
+    local wifi_name="${ssid}-wifi"
+
+    if ! nmcli device status | grep -q "wlan0"; then
+        error_msg "Interface Wi-Fi 'wlan0' não encontrada. Verifique se está conectada."
+        return 1
+    fi
+
+    echo "Criando conexão Wi-Fi '$wifi_name' com SSID '$ssid' usando a bridge '$controller'..."
+    printf "Digite a senha para a rede Wi-Fi: "
+    local wifi_password
+    #wifi_password="$(read_password)"  # Captura a senha digitada
+    read_password
+    wifi_password="$password"
+
+    nmcli connection add type wifi ifname wlan0 con-name "$wifi_name" ssid "$ssid"
+    nmcli connection modify "$wifi_name" wifi-sec.key-mgmt wpa-psk
+    nmcli connection modify "$wifi_name" wifi-sec.psk "$wifi_password"
+    nmcli connection modify "$wifi_name" connection.master "$controller"
+    nmcli connection modify "$wifi_name" connection.type 802-3-ethernet
+
+    success_msg "Conexão Wi-Fi '$wifi_name' criada com sucesso!"
 }
 
 # Função para remover uma conexão específica
@@ -120,13 +215,9 @@ remove_connection() {
     if check_connection_exists "$name"; then
         echo "Removendo conexão '$name'..."
         nmcli connection delete "$name"
-        if [[ $? -ne 0 ]]; then
-            echo "Erro ao remover a conexão '$name'."
-            exit 1
-        fi
-        echo "Conexão '$name' removida com sucesso!"
+        success_msg "Conexão '$name' removida com sucesso!"
     else
-        echo "Conexão '$name' não encontrada."
+        error_msg "Conexão '$name' não encontrada."
     fi
 }
 
@@ -135,11 +226,8 @@ remove_all_connections() {
     echo "Removendo todas as conexões..."
     for conn in $(nmcli -t -f NAME connection show); do
         nmcli connection delete "$conn"
-        if [[ $? -ne 0 ]]; then
-            echo "Erro ao remover a conexão '$conn'."
-        fi
     done
-    echo "Todas as conexões foram removidas!"
+    success_msg "Todas as conexões foram removidas!"
 }
 
 # Função para listar todas as conexões
@@ -148,151 +236,141 @@ list_connections() {
     nmcli connection show
 }
 
-# Função para listar todas as pontes
+# Função para listar as bridges
 list_bridges() {
-    echo "Pontes atuais:"
+    echo "Bridges atuais:"
     brctl show
 }
 
-# Verifica se os comandos necessários estão disponíveis
-if ! command -v ip >/dev/null || ! command -v brctl >/dev/null || ! command -v nmcli >/dev/null; then
-    echo "Por favor, instale as dependências antes de executar o comando."
-    exit 1
-fi
-
-# Processa as opções de linha de comando
-if [[ "$#" -gt 0 ]]; then
-    # Verifica se todos os argumentos começam com '-'
-    for arg in "$@"; do
-        if [[ "$arg" != -* ]]; then
-            echo "Erro: todos os argumentos devem começar com '-'."
-            show_help  # Exibe a ajuda
+# Função para verificar e instalar dependências
+check_dependencies() {
+    for cmd in ip nmcli brctl; do
+        if ! command -v "$cmd" >/dev/null; then
+            error_msg "O comando '$cmd' não está instalado. Instale as dependências antes de executar o comando."
             exit 1
         fi
     done
-    while getopts "c:b:i:g:r:alph" opt; do
+}
+
+# Limpar terminal
+clear
+
+# Verificação de dependências
+check_dependencies
+
+# Processamento de opções de linha de comando
+if [[ "$#" -gt 0 ]]; then
+    for arg in "$@"; do
+        if [[ "$arg" != -* ]]; then
+            error_msg "Todos os argumentos devem começar com '-'."
+            show_help
+            exit 1
+        fi
+    done
+    while getopts "c:b:i:g:r:alhw:" opt; do
         case $opt in
             c)
-                # Cria conexão Ethernet 'Cabeada'
                 create_cabeada "$OPTARG"
-                exit 0  # Finaliza após a criação
+                exit 0
                 ;;
             b)
-                # Cria conexão Bridge com o nome especificado
                 bridge_name="$OPTARG"
                 ;;
             i)
-                # Endereço IP para a configuração da Bridge
-                if ! is_valid_ip "$OPTARG"; then
-                    echo "Erro: Endereço IP '$OPTARG' é inválido."
-                    exit 1
-                fi
                 ipv4_address="$OPTARG"
                 ;;
             g)
-                # Gateway para a configuração da Bridge
                 ipv4_gateway="$OPTARG"
                 ;;
             r)
-                # Remove uma conexão específica
                 remove_connection "$OPTARG"
-                exit 0  # Finaliza após a remoção
+                exit 0
                 ;;
             a)
-                # Remove todas as conexões
                 remove_all_connections
-                exit 0  # Finaliza após a remoção
+                exit 0
                 ;;
             l)
-                # Lista todas as conexões
                 list_connections
-                exit 0  # Finaliza após a listagem
+                exit 0
                 ;;
-            p)
-                # Lista todas as pontes
-                list_bridges
-                exit 0  # Finaliza após a listagem
+            w)
+                create_wifi "$OPTARG"
+                exit 0
                 ;;
             h)
-                # Exibe a ajuda
                 show_help
                 exit 0
                 ;;
             \?)
-                echo "Opção inválida: -$OPTARG" >&2
+                error_msg "Opção inválida: -$OPTARG" >&2
                 show_help
                 exit 1
                 ;;
         esac
     done
 
-    # Verifica se a opção de criar bridge foi chamada
     if [[ -n "$bridge_name" ]]; then
         if check_connection_exists "$bridge_name"; then
-            echo "A conexão '$bridge_name' já existe. Escolha um nome diferente ou remova a conexão existente."
+            error_msg "A conexão '$bridge_name' já existe. Escolha um nome diferente ou remova a conexão existente."
             exit 1
         fi
         create_bridge "$bridge_name" "$ipv4_address" "$ipv4_gateway"
-        exit 0  # Finaliza após a criação da bridge
     fi
 else
-    # Se não houver opções, exibe o menu interativo
-    clear
     while true; do
-        echo "Escolha uma opção:"
-        echo "1) Criar conexão 'Cabeada' (Ethernet)"
-        echo "2) Criar conexão 'Bridge' com nome e IP personalizados"
-        echo "3) Remover uma conexão específica"
-        echo "4) Remover todas as conexões"
-        echo "5) Listar todas as conexões"
-        echo "6) Listar todas as pontes"
-        echo "7) Sair"
-        read -p "Opção: " option
-
+		show_menu
+		read -p "Opção: " option
         case $option in
             1)
-                read -p "Digite o nome da nova conexão Ethernet: " name
-                create_cabeada "$name"
-                sleep 2
+                read -p "Digite o nome da conexão 'Cabeada': " conn_name
+                create_cabeada "$conn_name"
+                read -p "Pressione Enter para continuar..."
                 clear
                 ;;
             2)
-                read -p "Digite o nome da nova conexão Bridge: " bridge_name
-                read -p "Digite o endereço IP (ou deixe vazio para auto): " ipv4_address
-                if [[ -n "$ipv4_address" ]] && ! is_valid_ip "$ipv4_address"; then
-                    echo "Erro: Endereço IP '$ipv4_address' é inválido."
-                    continue
-                fi
-                read -p "Digite o gateway (ou deixe vazio para auto): " ipv4_gateway
-                create_bridge "$bridge_name" "$ipv4_address" "$ipv4_gateway"
-                sleep 2
+                read -p "Digite o SSID da rede Wi-Fi: " ssid
+                create_wifi "$ssid"
+                read -p "Pressione Enter para continuar..."
                 clear
                 ;;
             3)
-                read -p "Digite o nome da conexão que deseja remover: " name
-                remove_connection "$name"
-                sleep 2
+                read -p "Digite o nome da Bridge: " bridge_name
+                read -p "Digite o endereço IP da Bridge (ou pressione Enter para pular): " ipv4_address
+                read -p "Digite o Gateway da Bridge (ou pressione Enter para pular): " ipv4_gateway
+                create_bridge "$bridge_name" "$ipv4_address" "$ipv4_gateway"
+                read -p "Pressione Enter para continuar..."
                 clear
                 ;;
             4)
-                remove_all_connections
-                sleep 2
+                read -p "Digite o nome da conexão a ser removida: " conn_name
+                remove_connection "$conn_name"
+                read -p "Pressione Enter para continuar..."
                 clear
                 ;;
             5)
+                remove_all_connections
+                read -p "Pressione Enter para continuar..."
                 clear
-                list_connections
                 ;;
             6)
                 clear
-                list_bridges
+                list_connections
+                #read -p "Pressione Enter para continuar..."
+                #clear
                 ;;
             7)
+                clear
+                list_bridges
+                #read -p "Pressione Enter para continuar..."
+                #clear
+                ;;
+            0)
                 echo "Saindo..."
                 exit 0
                 ;;
             *)
-                echo "Opção inválida. Tente novamente."
+                error_msg "Opção inválida. Tente novamente."
                 ;;
         esac
     done
