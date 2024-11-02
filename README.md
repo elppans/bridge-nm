@@ -1,129 +1,127 @@
-# Configuração de Rede Bridge com nmcli
+# Script de Gerenciamento de Conexões de Rede
 
-Este repositório contém um script chamado `bridge_nmcli.sh` que facilita a configuração de uma rede bridge no Linux usando o utilitário `nmcli`.  
-A ponte (bridge) é uma interface virtual que combina várias interfaces físicas em uma única interface lógica. Ela pode ser útil para cenários como balanceamento de carga, alta disponibilidade ou segmentação de tráfego.  
+Este script em Bash facilita a criação, remoção e listagem de conexões de rede no Linux usando o `NetworkManager`. Ele suporta conexões Ethernet e Bridges, além de permitir a configuração de IPs e gateways.
 
-## Como Usar
+## Pré-requisitos
 
-1) Clone este repositório para o seu sistema local:
+Antes de usar o script, verifique se você possui as seguintes ferramentas instaladas:
 
-```
-git clone https://github.com/elppans/bridge_nmcli.git
-```
+- `nmcli` (NetworkManager Command Line Interface)
+- `brctl` (Bridge Control)
+- `ip` (utilitário de manipulação de rede)
 
-2) Navegue até o diretório do repositório:  
+Você pode instalá-las usando o gerenciador de pacotes da sua distribuição Linux. Por exemplo:
 
-```
-cd bridge_nmcli
-```
+- **No Debian, Ubuntu ou derivados:**
 
-3) Configure o script para execução:
+    ```bash
+    sudo apt install network-manager bridge-utils iproute2
+    ```
 
-```
-chmod +x bridge_nmcli.sh
-```
+- **No Fedora:**
 
-4) Execute o script para configurar a rede bridge:
+    ```bash
+    sudo dnf install NetworkManager bridge-utils iproute
+    ```
 
-```
-./bridge_nmcli.sh auto
-```
+- **No openSUSE:**
 
-- A opção `auto` atribui o mesmo IP da interface de rede principal à ponte.
-- Execute o script sem opções para ver o help.  
+    ```bash
+    sudo zypper install NetworkManager bridge-utils iproute2
+    ```
 
-5) Verifique a conectividade e ajuste outras configurações conforme necessário.  
+- **No CentOS ou RHEL:**
 
-## Dependências  
+    ```bash
+    sudo dnf install NetworkManager bridge-utils iproute
+    ```
 
-Certifique-se de ter os seguintes pacotes instalados:
+- **No Arch Linux ou Manjaro:**
 
->iproute2  
-bridge-utils  
-NetworkManager
+    ```bash
+    sudo pacman -S networkmanager bridge-utils iproute2
+    ```
 
-# Arquivo de dependência do Bridge no Network Manager
+- **No Linux Mint:**
 
-Além dos pacotes, a rede Bridge também depende de existir um [arquivo de configuração da interface de rede](README.md#network-manager-sem-arquivo-de-configura%C3%A7%C3%A3o-da-interface) ao qual irá fazer ponte.  
+    ```bash
+    sudo apt install network-manager bridge-utils iproute2
+    ```
 
-## Network Manager sem arquivo de configuração da interface
+## Uso
 
-No Linux usando NetworkManager, as vezes a interface padrão funciona mas não há nenhum arquivo referente no diretório "`/etc/NetworkManager/system-connections/`".  
-Se der o comando ls (como super usuário) no diretório dá pra ver se exite algum arquivo.  
-Os arquivos tem uma extensão : `.nmconnection`  
-Se positivo, verificar com o comando cat para saber se é um arquivo de configuração referente a interface de rede.  
-Se notar que não existe nenhum arquivo referente à interface de rede, deve criar a configuração para que seja usada a rede Bridge. Caso contrário, após a próxima reinicilização, a interface não iniciará e portanto a rede Bridge também ficará sem rede.  
-Para resolver isso DEVE seguir o que será [explicado adiante](README.md#configura%C3%A7%C3%A3o-de-interfaces-de-rede-com-networkmanager):  
+### Executando o Script
 
-# Configuração de Interfaces de Rede com NetworkManager  
+Para executar o script, abra um terminal e use o seguinte comando:
 
-O NetworkManager é uma ferramenta essencial para gerenciar conexões de rede em sistemas Linux. Neste guia, explicarei como identificar interfaces de rede, verificar arquivos de configuração e criar novas interfaces usando o NetworkManager.
-
-## Identificando Interfaces de Rede  
-
-Para listar todas as interfaces de rede disponíveis no seu sistema, execute o seguinte comando:  
-
-```
-ip link show
+```bash
+bridge-nm [opções]
 ```
 
-Isso exibirá uma lista de interfaces, incluindo as interfaces de loopback (geralmente chamadas de lo) e outras interfaces de rede (como eth0, enp2s0, ens33, wlan0, etc.).  
+### Opções
 
-## Verificando os Arquivos de Configuração  
+As opções disponíveis são:
 
-O NetworkManager armazena as configurações de conexão em arquivos com a extensão `.nmconnection`. Por padrão, esses arquivos estão localizados no diretório `/etc/NetworkManager/system-connections/`.
+- `-c <nome>`: Cria uma conexão Ethernet "Cabeada" com o nome especificado.
+- `-b <nome>`: Cria uma conexão Bridge com o nome especificado.
+- `-i <ip>`: Especifica o endereço IP para a configuração da Bridge (use com `-b`).
+- `-g <gateway>`: Especifica o gateway para a configuração da Bridge (use com `-b`).
+- `-r <nome>`: Remove a conexão especificada.
+- `-a`: Remove todas as conexões.
+- `-l`: Lista todas as conexões atuais do NetworkManager.
+- `-p`: Lista todas as pontes atuais usando `brctl`.
+- `-h`: Exibe a ajuda.
 
-Para verificar se existem arquivos de configuração para suas interfaces de rede, use o seguinte comando:
+### Exemplos
 
-```
-sudo ls -1 /etc/NetworkManager/system-connections/
-```
+- Criar uma conexão Ethernet "Cabeada":
 
-Se houver arquivos listados, você pode visualizar o conteúdo de um arquivo específico usando o comando cat:
-
-```
-sudo cat /etc/NetworkManager/system-connections/nome_do_arquivo.nmconnection
-```
-
->Substitua **`nome_do_arquivo`** pelo nome real do arquivo que você deseja examinar.  
-
-## Criando uma Nova Interface no NetworkManager  
-
-Para criar uma nova interface de rede usando o NetworkManager, você pode usar o utilitário `nmcli`.  
-
-1) Verifique se o NetworkManager está em execução:
-
-```
-systemctl status NetworkManager
+```bash
+bridge-nm -c NomeDaConexao
 ```
 
-Se não estiver em execução, inicie-o:
+- Criar uma conexão Bridge com IP e Gateway:
 
-```
-sudo systemctl start NetworkManager
-```
-
-2) Crie uma nova conexão Ethernet com o seguinte comando (substitua os valores conforme necessário):
-
-```
-sudo nmcli connection add type ethernet con-name "nome_da_interface" ifname "nome_da_interface"
+```bash
+bridge-nm -b br0 -i 192.168.1.10/24 -g 192.168.1.1
 ```
 
->**`nome_da_interface`**: Escolha um nome significativo para a nova interface.  
-**`ifname`**: Especifique o nome da interface de rede física (por exemplo, **eth0**).  
+- Remover uma conexão específica:
 
-3) Para conexões sem fio (Wi-Fi), use o seguinte comando:
-
-```
-sudo nmcli connection add type wifi con-name "nome_da_interface" ifname "nome_da_interface" ssid "nome_da_rede" password "senha_da_rede"
+```bash
+bridge-nm -r NomeDaConexao
 ```
 
->**`ssid`**: Substitua pelo nome da rede Wi-Fi.  
-**`password`**: Substitua pela senha da rede Wi-Fi.  
+- Remover todas as conexões:
 
-4) Finalmente, ative a nova interface:
+```bash
+bridge-nm -a
+```
 
+- Listar todas as conexões:
+
+```bash
+bridge-nm -l
 ```
-sudo nmcli connection up "nome_da_interface"
+
+- Listar todas as pontes:
+
+```bash
+bridge-nm -p
 ```
-Lembre-se de substituir os valores entre aspas pelos valores reais relevantes para o seu sistema.  
+
+### Modo Interativo
+
+Se você não fornecer nenhuma opção ao executar o script, ele abrirá um menu interativo onde você pode escolher as operações a serem realizadas. 
+
+```bash
+bridge-nm
+```
+
+## Contribuição
+
+Sinta-se à vontade para fazer contribuições ou sugestões. Para relatar problemas, por favor, crie uma nova issue.
+
+## Licença
+
+Este projeto está sob a licença MIT. Consulte o arquivo [LICENSE](LICENSE) para mais detalhes.
