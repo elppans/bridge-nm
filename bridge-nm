@@ -1,5 +1,6 @@
 #!/bin/bash
-set -e  # Faz o script sair imediatamente se um comando falhar
+# shellcheck disable=SC2207
+set -e # Faz o script sair imediatamente se um comando falhar
 
 # Nome do script
 SCRIPT_NAME="Gerenciador de Conexões de Rede"
@@ -10,13 +11,13 @@ DESCRIPTION="Este menu permite gerenciar conexões de rede no Linux, incluindo a
 # Função para exibir menu
 show_menu() {
     # clear
-    echo -ne "\033]0;$SCRIPT_NAME\007"  # Altera o título do terminal
+    echo -ne "\033]0;$SCRIPT_NAME\007" # Altera o título do terminal
     echo "==============================="
     echo "$SCRIPT_NAME"
     echo "$DESCRIPTION"
     echo "==============================="
     echo "Escolha uma opção:"
-    echo "1) Criar conexão 'Cabeada' (Ethernet)"
+    echo "1) Criar conexão Ethernet"
     echo "2) Criar conexão Wi-Fi"
     echo "3) Criar conexão 'Bridge' com nome e IP personalizados"
     echo "4) Remover uma conexão específica"
@@ -31,7 +32,7 @@ show_help() {
     echo "Uso: $0 [opções]"
     echo
     echo "Opções:"
-    echo "  -c <nome>                Criar conexão Ethernet 'Cabeada' com o nome especificado"
+    echo "  -c <nome>                Criar conexão Ethernet com a Interface de rede especificada"
     echo "  -b <nome>                Criar conexão Bridge com o nome especificado"
     echo "  -i <ip>                  Endereço IP para a configuração da Bridge (use com -b)"
     echo "  -g <gateway>             Gateway para a configuração da Bridge (use com -b)"
@@ -43,7 +44,7 @@ show_help() {
     echo "  -h                       Exibir esta ajuda"
     echo
     echo "Exemplos:"
-    echo "  $0 -c Cabeada             Cria uma conexão Ethernet 'Cabeada'"
+    echo "  $0 -c eth0             Cria uma conexão Ethernet conectada a Bridge com a Interface de rede especificada"
     echo "  $0 -b br0 -i 192.168.15.222/24 -g 192.168.15.1"
     echo "                            Cria uma conexão Bridge 'br0' com IP e Gateway especificados"
     echo "  $0 -w MyWiFi              Cria uma conexão Wi-Fi com o SSID 'MyWiFi' e senha fornecida"
@@ -81,12 +82,12 @@ get_bridge_controller() {
     local bridges=($(nmcli -t -f NAME,TYPE connection show | grep ":bridge$" | cut -d: -f1))
 
     if [[ ${#bridges[@]} -eq 0 ]]; then
-        error_msg "Nenhuma bridge encontrada. Crie uma bridge antes de prosseguir."
-        return 1
+        unset controller
     elif [[ ${#bridges[@]} -eq 1 ]]; then
         echo "${bridges[0]}"
     else
-        echo "Múltiplas bridges encontradas:"
+        # echo "Múltiplas bridges encontradas:"
+        unset controller
         select bridge in "${bridges[@]}"; do
             if [[ -n "$bridge" ]]; then
                 echo "$bridge"
@@ -100,12 +101,18 @@ get_bridge_controller() {
 
 # Função para criar a conexão Bridge
 create_bridge() {
-    local bridge_name="$1"
+    local bridge_name="${1:-br0}"
     local ipv4_address="$2"
     local ipv4_gateway="$3"
     local bridge_ageing_time=299
     local ipv4_method
 
+    # Verifica se a conexão Bridge já existe
+    if nmcli connection show "$bridge_name" &>/dev/null; then
+        echo "A conexão '$bridge_name' já existe. Abortando."
+        return 1
+    fi
+    
     if [[ -z "$ipv4_address" || -z "$ipv4_gateway" ]]; then
         ipv4_method="auto"
         echo "Nenhum endereço IP ou gateway especificado. Usando o método IPv4 'auto'."
@@ -143,15 +150,21 @@ create_cabeada() {
     local controller
     controller=$(get_bridge_controller) || exit 1
 
-    echo "Criando conexão '$name' para Ethernet usando a bridge '$controller'..."
-
-    nmcli connection add type ethernet ifname "$controller" con-name "$name"
-
-    if ! nmcli connection add type ethernet ifname "$controller" con-name "$name"; then
-        error_msg "Falha ao criar a conexão '$name'."
-        exit 1
+    if [[ -z "$name" ]]; then
+        error_msg "Deve escolher uma interface de rede para prosseguir."
+        is_interactive
+        return 1
     fi
 
+    if [[ -z "$controller" ]]; then
+        error_msg "Nenhuma bridge encontrada. Crie uma bridge antes de prosseguir."
+        is_interactive
+        return 1
+    fi
+
+    echo "Criando conexão '$name' para Ethernet usando a bridge '$controller'..."
+
+    nmcli connection add type ethernet ifname "$name" con-name "$name" master "$controller"
     nmcli connection modify "$name" connection.master "$controller"
     nmcli connection modify "$name" connection.port-type bridge
 
@@ -166,16 +179,16 @@ read_password() {
         if [[ $char == $'\0' ]]; then
             break
         fi
-        if [[ $char == $'\177' ]]; then  # Backspace
+        if [[ $char == $'\177' ]]; then # Backspace
             if [[ -n $password ]]; then
                 password=${password%?}
-                printf "\b \b"  # Move o cursor para trás e apaga o asterisco
-                printf ' '      # Apaga o último asterisco
-                printf "\b"     # Move o cursor para trás novamente
+                printf "\b \b" # Move o cursor para trás e apaga o asterisco
+                printf ' '     # Apaga o último asterisco
+                printf "\b"    # Move o cursor para trás novamente
             fi
         else
             password+="$char"
-            printf '*'  # Mostra um asterisco na tela
+            printf '*' # Mostra um asterisco na tela
         fi
     done
     echo
@@ -236,7 +249,11 @@ list_connections() {
     echo "Conexões atuais do NetworkManager:"
     nmcli connection show
 }
-
+list_devices() {
+    echo "Interfaces de rede disponíveis: "
+    nmcli device status | grep -v '^lo\|^vmnet\|^vnet\|^virbr\|^br' | tail -n +2 | awk '{print $1}'
+    iface1=$(nmcli device status | grep -v '^lo\|^vmnet\|^vnet\|^virbr\|^br' | tail -n +2 | awk '{print $1}' | head -n 1)
+}
 # Função para listar as bridges
 list_bridges() {
     echo "Bridges atuais:"
@@ -253,62 +270,133 @@ check_dependencies() {
     done
 }
 
+is_interactive() {
+    sleep 3
+    [[ "$interativo" -eq 1 ]] && menu_interativo
+}
+
+menu_interativo() {
+    interativo="1"
+    export interativo
+    # Limpar terminal
+    clear
+    while true; do
+        show_menu
+        read -r -p "Opção: " option
+        case $option in
+        1)
+            list_devices
+            echo
+            echo "Digite o nome da interface de rede. Exemplo: $iface1"
+            read -r -p "Interface: " conn_name
+            create_cabeada "$conn_name" || is_interactive
+            read -r -p "Pressione Enter para continuar..."
+            clear
+            ;;
+        2)
+            read -r -p "Digite o SSID da rede Wi-Fi: " ssid
+            create_wifi "$ssid" || is_interactive
+            read -r -p "Pressione Enter para continuar..."
+            clear
+            ;;
+        3)
+            read -r -p "Digite o nome da Bridge: " bridge_name
+            read -r -p "Digite o endereço IP da Bridge (ou pressione Enter para pular): " ipv4_address
+            read -r -p "Digite o Gateway da Bridge (ou pressione Enter para pular): " ipv4_gateway
+            create_bridge "$bridge_name" "$ipv4_address" "$ipv4_gateway" || is_interactive
+            read -r -p "Pressione Enter para continuar..."
+            clear
+            ;;
+        4)
+            read -r -p "Digite o nome da conexão a ser removida: " conn_name
+            remove_connection "$conn_name" || is_interactive
+            read -r -p "Pressione Enter para continuar..."
+            clear
+            ;;
+        5)
+            remove_all_connections || is_interactive
+            read -r -p "Pressione Enter para continuar..."
+            clear
+            ;;
+        6)
+            clear
+            list_connections || is_interactive
+            #read -r -p "Pressione Enter para continuar..."
+            #clear
+            ;;
+        7)
+            clear
+            list_bridges || is_interactive
+            #read -r -p "Pressione Enter para continuar..."
+            #clear
+            ;;
+        0)
+            echo "Saindo..."
+            exit 0
+            ;;
+        *)
+            error_msg "Opção inválida. Tente novamente."
+            ;;
+        esac
+    done
+}
+
 # Verificação de dependências
 check_dependencies
 
 # Processamento de opções de linha de comando
 if [[ "$#" -gt 0 ]]; then
-    for arg in "$@"; do
-        if [[ "$arg" != -* ]]; then
-            error_msg "Todos os argumentos devem começar com '-'."
-            show_help
-            exit 1
-        fi
-    done
+    # for arg in "$@"; do
+    #     if [[ "$arg" != -? ]]; then
+    #         error_msg "Todos os argumentos devem começar com '-'."
+    #         show_help
+    #         exit 1
+    #     fi
+    # done
     while getopts "c:b:i:g:r:alphw:" opt; do
         case $opt in
-            c)
-                create_cabeada "$OPTARG"
-                exit 0
-                ;;
-            b)
-                bridge_name="$OPTARG"
-                ;;
-            i)
-                ipv4_address="$OPTARG"
-                ;;
-            g)
-                ipv4_gateway="$OPTARG"
-                ;;
-            r)
-                remove_connection "$OPTARG"
-                exit 0
-                ;;
-            a)
-                remove_all_connections
-                exit 0
-                ;;
-            l)
-                list_connections
-                exit 0
-                ;;
-			p)
-                list_bridges
-                exit 0
-                ;;
-            w)
-                create_wifi "$OPTARG"
-                exit 0
-                ;;
-            h)
-                show_help
-                exit 0
-                ;;
-            \?)
-                error_msg "Opção inválida: -$OPTARG" >&2
-                show_help
-                exit 1
-                ;;
+        c)
+            create_cabeada "$OPTARG"
+            exit 0
+            ;;
+        b)
+            bridge_name="$OPTARG"
+            ;;
+        i)
+            ipv4_address="$OPTARG"
+            ;;
+        g)
+            ipv4_gateway="$OPTARG"
+            ;;
+        r)
+            remove_connection "$OPTARG"
+            exit 0
+            ;;
+        a)
+            remove_all_connections
+            exit 0
+            ;;
+        l)
+            list_connections
+            exit 0
+            ;;
+        p)
+            list_bridges
+            exit 0
+            ;;
+        w)
+            create_wifi "$OPTARG"
+            exit 0
+            ;;
+        h)
+            show_help
+            exit 0
+            ;;
+        \?)
+            error_msg "Opção inválida: -$OPTARG" >&2
+            show_help
+            exit 1
+            ;;
         esac
     done
 
@@ -320,62 +408,5 @@ if [[ "$#" -gt 0 ]]; then
         create_bridge "$bridge_name" "$ipv4_address" "$ipv4_gateway"
     fi
 else
-	# Limpar terminal
-	clear
-    while true; do
-		show_menu
-		read -p "Opção: " option
-        case $option in
-            1)
-                read -p "Digite o nome da conexão 'Cabeada': " conn_name
-                create_cabeada "$conn_name"
-                read -p "Pressione Enter para continuar..."
-                clear
-                ;;
-            2)
-                read -p "Digite o SSID da rede Wi-Fi: " ssid
-                create_wifi "$ssid"
-                read -p "Pressione Enter para continuar..."
-                clear
-                ;;
-            3)
-                read -p "Digite o nome da Bridge: " bridge_name
-                read -p "Digite o endereço IP da Bridge (ou pressione Enter para pular): " ipv4_address
-                read -p "Digite o Gateway da Bridge (ou pressione Enter para pular): " ipv4_gateway
-                create_bridge "$bridge_name" "$ipv4_address" "$ipv4_gateway"
-                read -p "Pressione Enter para continuar..."
-                clear
-                ;;
-            4)
-                read -p "Digite o nome da conexão a ser removida: " conn_name
-                remove_connection "$conn_name"
-                read -p "Pressione Enter para continuar..."
-                clear
-                ;;
-            5)
-                remove_all_connections
-                read -p "Pressione Enter para continuar..."
-                clear
-                ;;
-            6)
-                clear
-                list_connections
-                #read -p "Pressione Enter para continuar..."
-                #clear
-                ;;
-            7)
-                clear
-                list_bridges
-                #read -p "Pressione Enter para continuar..."
-                #clear
-                ;;
-            0)
-                echo "Saindo..."
-                exit 0
-                ;;
-            *)
-                error_msg "Opção inválida. Tente novamente."
-                ;;
-        esac
-    done
+    menu_interativo
 fi
