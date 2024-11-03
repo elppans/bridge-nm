@@ -64,13 +64,14 @@ bridge-nm [opções]
 
 As opções disponíveis são:
 
-- `-c <nome>`: Cria uma conexão Ethernet "Cabeada" com o nome especificado.
+- `-c <nome>`: Cria uma conexão Ethernet com o nome da "Interface" especificada.
 - `-b <nome>`: Cria uma conexão Bridge com o nome especificado.
 - `-i <ip>`: Especifica o endereço IP para a configuração da Bridge (use com `-b`).
 - `-g <gateway>`: Especifica o gateway para a configuração da Bridge (use com `-b`).
 - `-r <nome>`: Remove a conexão especificada.
 - `-a`: Remove todas as conexões.
 - `-l`: Lista todas as conexões atuais do NetworkManager.
+- `-p`: Lista todas as pontes atuais
 - `-w <ssid>`: Cria uma conexão Wi-Fi com o SSID especificado e solicita uma senha interativa.
 - `-h`: Exibe a ajuda.
 
@@ -79,7 +80,7 @@ As opções disponíveis são:
 - Criar uma conexão Ethernet "Cabeada":
 
 ```bash
-bridge-nm -c NomeDaConexao
+bridge-nm -c NomeDaInterface
 ```
 
 - Criar uma conexão Bridge com IP e Gateway:
