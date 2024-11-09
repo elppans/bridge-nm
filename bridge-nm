@@ -198,12 +198,25 @@ read_password() {
 # Função para criar a conexão Wi-Fi
 create_wifi() {
     local ssid="$1"
+    local name="$2"
     local controller
     controller=$(get_bridge_controller) || exit 1
     local wifi_name="${ssid}-wifi"
 
-    if ! nmcli device status | grep -q "wlan0"; then
-        error_msg "Interface Wi-Fi 'wlan0' não encontrada. Verifique se está conectada."
+    if [[ -z "$name" ]]; then
+        error_msg "Deve escolher uma interface de rede para prosseguir."
+        is_interactive
+        return 1
+    fi
+
+    if [[ -z "$controller" ]]; then
+        error_msg "Nenhuma bridge encontrada. Crie uma bridge antes de prosseguir."
+        is_interactive
+        return 1
+    fi
+
+    if ! nmcli device status | grep -q "$name"; then
+        error_msg "Interface Wi-Fi '$name' não encontrada. Verifique se está conectada."
         return 1
     fi
 
@@ -214,7 +227,7 @@ create_wifi() {
     read_password
     wifi_password="$password"
 
-    nmcli connection add type wifi ifname wlan0 con-name "$wifi_name" ssid "$ssid"
+    nmcli connection add type wifi ifname "$name" con-name "$wifi_name" ssid "$ssid"
     nmcli connection modify "$wifi_name" wifi-sec.key-mgmt wpa-psk
     nmcli connection modify "$wifi_name" wifi-sec.psk "$wifi_password"
     nmcli connection modify "$wifi_name" connection.master "$controller"
@@ -294,8 +307,12 @@ menu_interativo() {
             clear
             ;;
         2)
+            list_devices
+            echo
+            echo "Digite o nome da Interface de rede Wi-Fi. Exemplo: $iface1"
+            read -r -p "Interface Wi-Fi: " conn_name
             read -r -p "Digite o SSID da rede Wi-Fi: " ssid
-            create_wifi "$ssid" || is_interactive
+            create_wifi "$ssid" "$conn_name" || is_interactive
             read -r -p "Pressione Enter para continuar..."
             clear
             ;;
